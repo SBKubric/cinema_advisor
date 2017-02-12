@@ -1,2 +1,4 @@
-# cinema_advisor
-The simple movie advisor
+# The movie recomendation system
+## Description
+TODO: Make the script's desctiption
+
