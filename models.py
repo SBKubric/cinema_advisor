@@ -22,9 +22,8 @@ class Movie (Base):
 
     movie_id = Column(Integer, primary_key=True)
     vote_average = Column(REAL)
-    title_id = Column(Integer, ForeignKey('titles.title_id'))
 
-    titles = relationship('Title', back_populates='movies')
+    titles = relationship('Title', back_populates='movie')
 
     genres = relationship('Genre',
                           secondary=movie_genres,
@@ -41,8 +40,8 @@ class Movie (Base):
         self.vote_average = vote_average
 
     def __repr__(self):
-        return "<Movie(movie_id={}, title_id={}, vote_average={})>".format(
-            self.movie_id, self.title_id, self.vote_average
+        return "<Movie(movie_id={}, vote_average={}, titles='{}', genres='{}', keywords='{}', lists='{}')>".format(
+            self.movie_id, self.vote_average, self.titles, self.genres, self.keywords, self.lists
         )
 
 
@@ -55,9 +54,8 @@ class Title (Base):
 
     movie = relationship('Movie', back_populates='titles')
 
-    def __init__(self, title, movie_id):
+    def __init__(self, title):
         self.title = title
-        self.movie_id = movie_id
 
     def __repr__(self):
         return "<Title(title_id={}, title='{}', movie_id={})>".format(
@@ -78,8 +76,8 @@ class Keyword (Base):
         self.keyword = keyword
 
     def __repr__(self):
-        return "<Keyword(keyword_id={}, keyword='{}', movie_id={})>".format(
-            self.keyword_id, self.keyword, self.movie_id
+        return "<Keyword(keyword_id={}, keyword='{}'>".format(
+            self.keyword_id, self.keyword
         )
 
 
