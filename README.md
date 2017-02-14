@@ -44,4 +44,4 @@ The recommended films:
 ```
 
 # Disclaimer
-All code is written for educational pupouses ONLY.
+All code is written for educational purpouses ONLY.
