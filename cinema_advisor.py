@@ -150,7 +150,7 @@ def get_rank(movie, the_movie, phrase) -> float:
     genre_factor = 1 if len(set(movie.genres).intersection(set(the_movie.genres))) > 0 else 0
     keywords_factor = 1 if len(set(movie.keywords).intersection(set(the_movie.keywords))) > 0 else 0
     lists_factor = 1 if len(set(movie.lists).intersection(the_movie.lists)) > 0 else 0
-    return title_factor + genre_factor + keywords_factor + lists_factor
+    return title_factor + genre_factor + keywords_factor + lists_factor + movie.vote_average
 
 
 def range_the_similar_ones(the_movie, similar_movies, phrase) -> list:
@@ -175,13 +175,15 @@ if __name__ == '__main__':
     engine = get_engine_and_initialize_db(Base)
     Session.configure(bind=engine)
     session = Session()
+    print('Checking the db state...')
     if is_incomplete(session):
         print('Fetching the database...')
         fetch_db(session)
-    print()
-    print('OK')
     phrase = input('Please, enter the part of the movie title that should be a pivot: ')
     movie = get_the_most_similar(phrase, session)
+    while not movie:
+        phrase = input('Failed to find a movie with such title >_<. Lets try another! ^_^')
+        movie = get_the_most_similar(phrase, session)
     print('\nFound a movie named "{}"'.format(movie.title))
     print('Searching for similar films...')
     similar_movies = set(get_similar_titles_movies_list(phrase, session))
