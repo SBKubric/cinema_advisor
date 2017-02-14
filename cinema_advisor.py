@@ -1,17 +1,12 @@
 from models import Movie, List, Genre, Keyword, Base, Title
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
-from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
-import json
-from pprint import pprint
-from sqlite3 import Connection, DatabaseError
 
 import random
 import requests
 from tqdm import tqdm
 
-from models import Movie
 
 API_KEY_V3 = 'ea49129df62d63a56dc7324f7186f7fc'
 PROXY_API_URL = 'http://proxy.tekbreak.com/best/json'
@@ -187,7 +182,7 @@ if __name__ == '__main__':
     print('OK')
     phrase = input('Please, enter the part of the movie title that should be a pivot: ')
     movie = get_the_most_similar(phrase, session)
-    print('Found a movie named {}'.format(movie.title))
+    print('\nFound a movie named "{}"'.format(movie.title))
     print('Searching for similar films...')
     similar_movies = set(get_similar_titles_movies_list(phrase, session))
     similar_movies.discard(None)
@@ -198,7 +193,7 @@ if __name__ == '__main__':
     else:
         print('Building a recommendations list...')
         recommendations_list = range_the_similar_ones(movie, similar_movies, phrase)
-        print('\n____________________\nThe recommended films:')
+        print('\nThe recommended films:')
         for num, movie in enumerate(recommendations_list, start=1):
             print('{}. {}'.format(num, movie.title))
     session.close()
