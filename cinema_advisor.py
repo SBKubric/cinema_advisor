@@ -18,6 +18,7 @@ PROXY_API_URL = 'http://proxy.tekbreak.com/best/json'
 DB_NAME = 'movies.db'
 AMOUNT_OF_MOVIES = 1000
 CODE_OVERCOME_REQUEST_LIMIT = 25
+RECOMMENDATIONS_LIST_SIZE = 20
 
 Session = sessionmaker(autoflush=False)
 
@@ -47,15 +48,12 @@ def get_engine_and_initialize_db(Base) -> Engine:
     return engine
 
 
-def is_incomplete():
-    sess = Session()
+def is_incomplete(sess):
     how_many_movies_in_db = sess.query(Movie.movie_id).count()
-    sess.close()
     return how_many_movies_in_db < AMOUNT_OF_MOVIES
 
 
-def persist_data_to_db(movie_json) -> bool:
-    sess = Session()
+def persist_data_to_db(movie_json, sess) -> bool:
     keys = movie_json.keys()
     if sess.query(Movie).filter(Movie.movie_id == movie_json['id']).count() > 0:
         return False
@@ -96,7 +94,6 @@ def persist_data_to_db(movie_json) -> bool:
                 genre = sess.query(Genre).filter(Genre.genre_id == record['id']).first()
                 genre.movies.append(movie)
     sess.commit()
-    sess.close()
     return True
 
 
@@ -132,46 +129,76 @@ def create_movie_json(id_tmdb, proxy_list):
     return None
 
 
-def fetch_db():
-    sess = Session()
+def fetch_db(sess):
     how_many_movies_in_db = sess.query(Movie).count()
-    sess.close()
     ids_tmdb = create_random_id_tmdb_list()
     index = 0
     proxy_list = fetch_proxy_list()
-    for _ in tqdm(range(AMOUNT_OF_MOVIES), total=AMOUNT_OF_MOVIES - how_many_movies_in_db, unit='movie'):
+    for _ in tqdm(range(AMOUNT_OF_MOVIES - how_many_movies_in_db), total=AMOUNT_OF_MOVIES - how_many_movies_in_db,
+                  unit='movie'):
         while True:
             movie_json = create_movie_json(ids_tmdb[index], proxy_list)
             index += 1
             if movie_json:
-                if persist_data_to_db(movie_json):
-                    is_incomplete()
+                if persist_data_to_db(movie_json, sess):
                     break
 
 
-def get_similar_titles_movies_list(movie_title) -> list:
-    sess = Session()
+def get_similar_titles_movies_list(movie_title, sess) -> list:
     similar_titles = sess.query(Title).filter(Title.title.like('%{}%'.format(movie_title))).all()
     movies = set(title.movie for title in similar_titles)
-    sess.close()
     return list(movies)
 
 
-def find_the_most_similar_ones(movie_title, similar_movies):
-    return [movie.title for movie in similar_movies]
+def get_rank(movie, the_movie, phrase) -> float:
+    title_factor = (1 - len(movie.title.replace(phrase, '')))/(1 - len(the_movie.title.replace(phrase, '')))
+    genre_factor = 1 if len(set(movie.genres).intersection(set(the_movie.genres))) > 0 else 0
+    keywords_factor = 1 if len(set(movie.keywords).intersection(set(the_movie.keywords))) > 0 else 0
+    lists_factor = 1 if len(set(movie.lists).intersection(the_movie.lists)) > 0 else 0
+    return title_factor + genre_factor + keywords_factor + lists_factor
+
+
+def range_the_similar_ones(the_movie, similar_movies, phrase) -> list:
+    movies_rank_list = [get_rank(movie, the_movie, phrase) for movie in similar_movies]
+    if movies_rank_list:
+        return [movie for movie, rank in sorted(zip(similar_movies, movies_rank_list), key=lambda x: x[1])][
+               :RECOMMENDATIONS_LIST_SIZE]
+    return []
+
+
+def get_the_most_similar(movie_title, sess) -> Movie:
+    results = sess.query(Movie).filter(Movie.title.like('%{}%'.format(movie_title))).all()
+    the_most_similar = results[0] if len(results) > 0 else None
+    for result in results:
+        if len(result.title.replace(movie_title, '')) < len(the_most_similar.title.replace(movie_title, '')):
+            the_most_similar = result
+    return the_most_similar
+
 
 if __name__ == '__main__':
     print("Welcome to SBKubric's Cinema Advisor!")
     engine = get_engine_and_initialize_db(Base)
     Session.configure(bind=engine)
-    if is_incomplete():
+    session = Session()
+    if is_incomplete(session):
         print('Fetching the database...')
-        fetch_db()
+        fetch_db(session)
+    print()
     print('OK')
-    movie_title = input('Please, enter the name of the movie that would be a pivot: ')
-    print('Searching for similar titles...')
-    similar_movies = get_similar_titles_movies_list(movie_title)
-    print('Building a recommendations list...')
-    recommendations_list = find_the_most_similar_ones(movie_title, similar_movies)
-    print('The recommended films:')
-    pprint(recommendations_list)
+    phrase = input('Please, enter the part of the movie title that should be a pivot: ')
+    movie = get_the_most_similar(phrase, session)
+    print('Found a movie named {}'.format(movie.title))
+    print('Searching for similar films...')
+    similar_movies = set(get_similar_titles_movies_list(phrase, session))
+    similar_movies.discard(None)
+    similar_movies.discard(movie)
+    similar_movies = list(similar_movies) if similar_movies else []
+    if len(similar_movies) == 0:
+        print('Unfortunately, nothing is found!')
+    else:
+        print('Building a recommendations list...')
+        recommendations_list = range_the_similar_ones(movie, similar_movies, phrase)
+        print('\n____________________\nThe recommended films:')
+        for num, movie in enumerate(recommendations_list, start=1):
+            print('{}. {}'.format(num, movie.title))
+    session.close()
