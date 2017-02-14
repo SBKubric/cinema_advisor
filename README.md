@@ -42,3 +42,6 @@ Building a recommendations list...
 The recommended films:
 1. Veim Naniach Lerega Sheelohim Kayam
 ```
+
+# Disclaimer
+All code is written for educational pupouses ONLY.
