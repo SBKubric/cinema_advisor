@@ -18,7 +18,7 @@ Nevertheless, after cloning a repo you should install requirements:
 pip install -r requirements
 ```
 
-After that you a free to use my ubelievably magnificent recommendation system.
+After that you a free to use my unbelievably magnificent recommendation system.
 
 ## Example
 
