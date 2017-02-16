@@ -2,6 +2,7 @@ from models import Movie, List, Genre, Keyword, Base, Title
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm.session import sessionmaker
+from collections import  OrderedDict
 import json
 from pprint import pprint
 
@@ -15,7 +16,7 @@ PROXY_API_URL = 'http://proxy.tekbreak.com/best/json'
 DB_NAME = 'movies.db'
 AMOUNT_OF_MOVIES = 1000
 CODE_OVERCOME_REQUEST_LIMIT = 25
-RECOMMENDATIONS_LIST_SIZE = 20
+RECOMMENDATIONS_LIST_SIZE = 10
 
 Session = sessionmaker(autoflush=False)
 
@@ -161,16 +162,14 @@ def fetch_db(sess):
 def locate_similar_genre_movies(movie) -> set:
     result = set()
     for genre in movie.genres:
-        for other_genre in movie.genres:
-            result += set(genre.movies).intersection(set(other_genre.movies)) if genre is not other_genre else result
+        result = result.union(set(genre.movies))
     return result
 
 
 def locate_similar_lists_movies(movie) -> set:
     result = set()
-    for list in movie.lists:
-        for other_list in movie.lists:
-            result += set(list.movies).intersection(set(other_list.movies)) if list is not other_list else result
+    for a_list in movie.lists:
+        result = result.union(set(a_list.movies))
     return result
 
 
@@ -178,14 +177,15 @@ def locate_similar_keyword_movies(movie) -> set:
     result = set()
     for keyword in movie.keywords:
         for other_keyword in movie.keywords:
-            result += set(keyword.movies).intersection(set(other_keyword.movies)) if keyword is not other_keyword else result
+            if keyword is not other_keyword:
+                result = result.union(set(keyword.movies).intersection(set(other_keyword.movies)))
     return result
 
 
 def get_similar_movies_list_sorted_by_vote(movie) -> list:
     similar_genre_movies = locate_similar_genre_movies(movie)
-    similar_keywords_movies = locate_similar_keyword_movies()
-    similar_lists_movies = locate_similar_lists_movies()
+    similar_keywords_movies = locate_similar_keyword_movies(movie)
+    similar_lists_movies = locate_similar_lists_movies(movie)
     similar_keywords_and_genres = similar_genre_movies.intersection(similar_keywords_movies)
     if not similar_keywords_and_genres:
         return []
@@ -205,15 +205,16 @@ def get_rank(movie, the_movie, phrase) -> float:
     return genre_factor + keywords_factor + lists_factor + movie.vote_average
 
 
-def range_similar_titiles(similar_movies, phrase) -> list:
-    i, j = 0, 0
-    for movie in similar_movies:
-        i += 1
-        for title in movie.titles:
-            if phrase in title:
-                swap = similar_movies[j]
-                similar_movies[j] = similar_movies[i]
+def range_similar_titles(similar_movies, phrase) -> list:
+    index = 0
+    for i in range(len(similar_movies)):
+        for j in range(len(similar_movies[i].titles)):
+            if phrase in similar_movies[i].titles[j].title:
+                swap = similar_movies[index]
+                similar_movies[index] = similar_movies[i]
                 similar_movies[i] = swap
+                index += 1
+                break
     return similar_movies[:RECOMMENDATIONS_LIST_SIZE]
 
 
@@ -227,6 +228,11 @@ def get_the_most_similar_title(movie_title, sess) -> Title:
         if len(title.title.replace(movie_title, '')) < len(the_most_similar.title.replace(movie_title, '')):
             the_most_similar = title
     return the_most_similar
+
+
+def get_titles_of_movie_list(similar_movies) -> list:
+    title_list = [movie.titles[0].title for movie in similar_movies]
+    return list(OrderedDict.fromkeys(title_list))[:RECOMMENDATIONS_LIST_SIZE]
 
 
 if __name__ == '__main__':
@@ -246,13 +252,13 @@ if __name__ == '__main__':
     print('\nFound a movie named "{}"'.format(desired_title.title))
     print('Searching for similar films...')
     similar_movies = get_similar_movies_list_sorted_by_vote(desired_title.movie)
-    similar_movies.remove(desired_title.movie)
     if not similar_movies:
         print('Unfortunately, nothing is found!')
     else:
         print('Building a recommendations list...')
-        recommendations_list = range_similar_titiles(similar_movies, phrase)
+        recommendations_list = get_titles_of_movie_list(similar_movies)
+        # recommendations_list = range_similar_titles(similar_movies, phrase)
         print('\nThe recommended films:')
-        for num, movie in enumerate(recommendations_list, start=1):
-            print('{}. {}'.format(num, movie.title))
+        for num, title in enumerate(recommendations_list, start=1):
+            print('{}. {}'.format(num, title))
     session.close()
