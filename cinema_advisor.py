@@ -17,6 +17,7 @@ DB_NAME = 'movies.db'
 AMOUNT_OF_MOVIES = 1000
 CODE_OVERCOME_REQUEST_LIMIT = 25
 RECOMMENDATIONS_LIST_SIZE = 10
+PREFERRED_LANGUAGE = 'RU'
 
 Session = sessionmaker(autoflush=False)
 
@@ -53,21 +54,20 @@ def is_incomplete(sess):
 
 def get_movie_frm_json_if_not_in_db(movie_json, sess) -> (Movie, Session):
     if sess.query(Movie).filter(Movie.movie_id == movie_json['id']).count() == 0:
+        movie_title = movie_json['title']
+        for title in movie_json['titles']:
+            if PREFERRED_LANGUAGE in title.values():
+                movie_title = title['title']
+                break
         movie = Movie(movie_id=movie_json['id'],
                       vote_average=movie_json['vote_average'],
+                      movie_title=movie_title,
                       is_adult=movie_json['adult'])
     else:
         movie = sess.query(Movie).filter(Movie.movie_id == movie_json['id']).first()
+
     if not movie.titles:
         movie.titles = [Title(title=record['title']) for record in movie_json['titles']]
-        if not movie.titles:
-            movie.titles.append(Title(title=movie_json['title']))
-            if movie_json['title'] != movie_json['original_title']:
-                movie.titles.append(Title(title=movie_json['original_title']))
-    else:
-        for record in movie_json['titles']:
-            is_already_added = sess.query(Title).filter(Title.title == record['title']).first()
-            movie.titles.append(Title(title=movie_json['title'])) if is_already_added else None
     return movie, sess
 
 
@@ -92,6 +92,7 @@ def get_session_with_user_lists(movie_json, movie, sess) -> Session:
         else:
             movie_list = sess.query(List).filter(List.list_id == record['id']).first()
             movie_list.movies.append(movie)
+    return sess
 
 
 def get_session_with_genres(movie_json, movie, sess) -> Session:
@@ -108,12 +109,21 @@ def get_session_with_genres(movie_json, movie, sess) -> Session:
 
 def persist_data_to_db(movie_json, sess) -> bool:
     movie, sess = get_movie_frm_json_if_not_in_db(movie_json, sess)
-    get_session_with_keywords(movie_json, movie, sess)
-    get_session_with_user_lists(movie_json, movie, sess)
-    get_session_with_genres(movie_json, movie, sess)
+    sess = get_session_with_keywords(movie_json, movie, sess)
+    sess = get_session_with_user_lists(movie_json, movie, sess)
+    sess = get_session_with_genres(movie_json, movie, sess)
     sess.add(movie)
     sess.commit()
     return True
+
+
+def is_valid_json_movie(movie_json):
+    keys = movie_json.keys()
+    has_id = 'id' in keys
+    has_titles = 'titles' in keys
+    has_keywords = 'keywords' in keys
+    has_genres = 'genres' in keys
+    return has_id and has_titles and has_genres and has_keywords
 
 
 def fetch_movie_json(id_tmdb, proxy_list) -> dict:
@@ -139,7 +149,7 @@ def fetch_movie_json(id_tmdb, proxy_list) -> dict:
         api_key=API_KEY_V3, proxy_list=proxy_list
     )
     movie_json.update(alternative_titles)
-    if 'id' in movie_json.keys():
+    if is_valid_json_movie(movie_json):
         return movie_json
     return {}
 
@@ -177,7 +187,7 @@ def locate_similar_keyword_movies(movie) -> set:
     result = set()
     for keyword in movie.keywords:
         for other_keyword in movie.keywords:
-            if keyword is not other_keyword:
+            if keyword != other_keyword:
                 result = result.union(set(keyword.movies).intersection(set(other_keyword.movies)))
     return result
 
@@ -247,7 +257,7 @@ if __name__ == '__main__':
     phrase = input('Please, enter the part of the movie title that should be a pivot: ')
     desired_title = get_the_most_similar_title(phrase, session)
     while not desired_title:
-        phrase = input('Failed to find a movie with such title >_<. Lets try another! ^_^')
+        phrase = input('Failed to find a movie with such title >_<. Lets try another! ^_^ : ')
         desired_title = get_the_most_similar_title(phrase, session)
     print('\nFound a movie named "{}"'.format(desired_title.title))
     print('Searching for similar films...')
@@ -259,6 +269,6 @@ if __name__ == '__main__':
         recommendations_list = get_titles_of_movie_list(similar_movies)
         # recommendations_list = range_similar_titles(similar_movies, phrase)
         print('\nThe recommended films:')
-        for num, title in enumerate(recommendations_list, start=1):
-            print('{}. {}'.format(num, title))
+        for num, title in enumerate(similar_movies, start=1):
+            print('{}. {}'.format(num, title.title))
     session.close()

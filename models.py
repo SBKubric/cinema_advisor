@@ -21,6 +21,7 @@ class Movie (Base):
     __tablename__ = 'movies'
 
     movie_id = Column(Integer, primary_key=True)
+    title = Column(String)
     vote_average = Column(REAL)
     is_adult = Column(Boolean)
 
@@ -36,14 +37,15 @@ class Movie (Base):
                          secondary=movie_lists,
                          back_populates='movies')
 
-    def __init__(self, movie_id, vote_average, is_adult):
+    def __init__(self, movie_id, movie_title, vote_average, is_adult):
         self.movie_id = movie_id
+        self.title = movie_title
         self.vote_average = vote_average
         self.is_adult = is_adult
 
     def __repr__(self):
-        return "<Movie(movie_id={}, vote_average={}, is_adult='{}', titles='{}', genres='{}', keywords='{}', lists='{}')>".format(
-            self.movie_id, self.vote_average, self.is_adult, self.titles, self.genres, self.keywords, self.lists
+        return "<Movie(movie_id={}, title='{}', vote_average={}, is_adult='{}', titles='{}', genres='{}', keywords='{}', lists='{}')>".format(
+            self.movie_id, self.title, self.vote_average, self.is_adult, self.titles, self.genres, self.keywords, self.lists
         )
 
 
