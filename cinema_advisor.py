@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm.session import sessionmaker
 from collections import  OrderedDict
-import json
+import time
 from pprint import pprint
 
 import random
@@ -63,12 +63,12 @@ def get_movie_frm_json_if_not_in_db(movie_json, sess) -> (Movie, Session):
                       vote_average=movie_json['vote_average'],
                       movie_title=movie_title,
                       is_adult=movie_json['adult'])
-    else:
-        movie = sess.query(Movie).filter(Movie.movie_id == movie_json['id']).first()
 
-    if not movie.titles:
-        movie.titles = [Title(title=record['title']) for record in movie_json['titles']]
-    return movie, sess
+        if not movie.titles:
+            movie.titles = [Title(title=record['title']) for record in movie_json['titles']]
+        return movie, sess
+    else:
+        return None, sess
 
 
 def get_session_with_keywords(movie_json, movie, sess) -> Session:
@@ -109,6 +109,8 @@ def get_session_with_genres(movie_json, movie, sess) -> Session:
 
 def persist_data_to_db(movie_json, sess) -> bool:
     movie, sess = get_movie_frm_json_if_not_in_db(movie_json, sess)
+    if not movie:
+        return False
     sess = get_session_with_keywords(movie_json, movie, sess)
     sess = get_session_with_user_lists(movie_json, movie, sess)
     sess = get_session_with_genres(movie_json, movie, sess)
@@ -160,7 +162,11 @@ def fetch_db(sess):
     proxy_list = fetch_proxy_list()
     for _ in tqdm(range(AMOUNT_OF_MOVIES - how_many_movies_in_db), total=AMOUNT_OF_MOVIES - how_many_movies_in_db,
                   unit='movie'):
+        timestamp = time.time()
         while True:
+            new_timestamp = time.time()
+            if new_timestamp - timestamp > 30:
+                index += 100
             movie_json = fetch_movie_json(index, proxy_list)
             index += 1
             if movie_json:
@@ -215,19 +221,6 @@ def get_rank(movie, the_movie, phrase) -> float:
     return genre_factor + keywords_factor + lists_factor + movie.vote_average
 
 
-def range_similar_titles(similar_movies, phrase) -> list:
-    index = 0
-    for i in range(len(similar_movies)):
-        for j in range(len(similar_movies[i].titles)):
-            if phrase in similar_movies[i].titles[j].title:
-                swap = similar_movies[index]
-                similar_movies[index] = similar_movies[i]
-                similar_movies[i] = swap
-                index += 1
-                break
-    return similar_movies[:RECOMMENDATIONS_LIST_SIZE]
-
-
 def get_the_most_similar_title(movie_title, sess) -> Title:
     similar_titles = sess.query(Title).filter(Title.title.like('%{}%'.format(movie_title))).all()
     if not similar_titles:
@@ -262,13 +255,15 @@ if __name__ == '__main__':
     print('\nFound a movie named "{}"'.format(desired_title.title))
     print('Searching for similar films...')
     similar_movies = get_similar_movies_list_sorted_by_vote(desired_title.movie)
+    for film in similar_movies:
+        if film == desired_title.movie:
+            similar_movies.remove(film)
+            break
     if not similar_movies:
         print('Unfortunately, nothing is found!')
     else:
         print('Building a recommendations list...')
-        recommendations_list = get_titles_of_movie_list(similar_movies)
-        # recommendations_list = range_similar_titles(similar_movies, phrase)
         print('\nThe recommended films:')
-        for num, title in enumerate(similar_movies, start=1):
+        for num, title in enumerate(similar_movies[:RECOMMENDATIONS_LIST_SIZE], start=1):
             print('{}. {}'.format(num, title.title))
     session.close()
