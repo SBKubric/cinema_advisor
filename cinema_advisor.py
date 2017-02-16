@@ -2,6 +2,8 @@ from models import Movie, List, Genre, Keyword, Base, Title
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm.session import sessionmaker
+import json
+from pprint import pprint
 
 import random
 import requests
@@ -48,125 +50,182 @@ def is_incomplete(sess):
     return how_many_movies_in_db < AMOUNT_OF_MOVIES
 
 
+def get_movie_frm_json_if_not_in_db(movie_json, sess) -> (Movie, Session):
+    if sess.query(Movie).filter(Movie.movie_id == movie_json['id']).count() == 0:
+        movie = Movie(movie_id=movie_json['id'],
+                      vote_average=movie_json['vote_average'],
+                      is_adult=movie_json['adult'])
+    else:
+        movie = sess.query(Movie).filter(Movie.movie_id == movie_json['id']).first()
+    if not movie.titles:
+        movie.titles = [Title(title=record['title']) for record in movie_json['titles']]
+        if not movie.titles:
+            movie.titles.append(Title(title=movie_json['title']))
+            if movie_json['title'] != movie_json['original_title']:
+                movie.titles.append(Title(title=movie_json['original_title']))
+    else:
+        for record in movie_json['titles']:
+            is_already_added = sess.query(Title).filter(Title.title == record['title']).first()
+            movie.titles.append(Title(title=movie_json['title'])) if is_already_added else None
+    return movie, sess
+
+
+def get_session_with_keywords(movie_json, movie, sess) -> Session:
+    for record in movie_json['keywords']:
+        if sess.query(Keyword).filter(Keyword.keyword_id == record['id']).count() == 0:
+            keywrd = Keyword(keyword_id=record['id'], keyword=record['name'])
+            keywrd.movies.append(movie)
+            sess.add(keywrd)
+        else:
+            keywrd = sess.query(Keyword).filter(Keyword.keyword_id == record['id']).first()
+            keywrd.movies.append(movie)
+    return session
+
+
+def get_session_with_user_lists(movie_json, movie, sess) -> Session:
+    for record in movie_json['results']:
+        if sess.query(List).filter(List.list_id == record['id']).count() == 0:
+            movie_list = List(list_id=record['id'], list_title=record['name'])
+            movie_list.movies.append(movie)
+            sess.add(movie_list)
+        else:
+            movie_list = sess.query(List).filter(List.list_id == record['id']).first()
+            movie_list.movies.append(movie)
+
+
+def get_session_with_genres(movie_json, movie, sess) -> Session:
+    for record in movie_json['genres']:
+        if sess.query(Genre).filter(Genre.genre_id == record['id']).count() == 0:
+            genre = Genre(genre_id=record['id'], genre=record['name'])
+            genre.movies.append(movie)
+            sess.add(genre)
+        else:
+            genre = sess.query(Genre).filter(Genre.genre_id == record['id']).first()
+            genre.movies.append(movie)
+    return sess
+
+
 def persist_data_to_db(movie_json, sess) -> bool:
-    keys = movie_json.keys()
-    if sess.query(Movie).filter(Movie.movie_id == movie_json['id']).count() > 0:
-        return False
-    movie = Movie(movie_id=movie_json['id'], movie_title=movie_json['title'], vote_average=movie_json['vote_average'])
-    movie.titles = [
-        Title(title=record['title']) for record in movie_json['titles']
-        ] if 'titles' in keys else []
-    if len(movie.titles) == 0:
-        movie.titles.append(Title(title=movie_json['title']))
-        if movie_json['title'] != movie_json['original_title']:
-            movie.titles.append(Title(title=movie_json['original_title']))
+    movie, sess = get_movie_frm_json_if_not_in_db(movie_json, sess)
+    get_session_with_keywords(movie_json, movie, sess)
+    get_session_with_user_lists(movie_json, movie, sess)
+    get_session_with_genres(movie_json, movie, sess)
     sess.add(movie)
-    if 'keywords' in keys:
-        for record in movie_json['keywords']:
-            if sess.query(Keyword).filter(Keyword.keyword_id == record[id]).count() == 0:
-                keywrd = Keyword(keyword_id=record['id'], keyword=record['name'])
-                keywrd.movies.append(movie)
-                sess.add(keywrd)
-            else:
-                keywrd = sess.query(Keyword).filter(Keyword.keyword_id == record['id']).first()
-                keywrd.movies.append(movie)
-    if 'results' in keys:
-        for record in movie_json['results']:
-            if sess.query(List).filter(List.list_id == record['id']).count() == 0:
-                movie_list = List(list_id=record['id'], list_title=record['name'])
-                movie_list.movies.append(movie)
-                sess.add(movie_list)
-            else:
-                movie_list = sess.query(List).filter(List.list_id == record['id']).first()
-                movie_list.movies.append(movie)
-    if 'genres' in keys:
-        for record in movie_json['genres']:
-            if sess.query(Genre).filter(Genre.genre_id == record['id']).count() == 0:
-                genre = Genre(genre_id=record['id'], genre=record['name'])
-                genre.movies.append(movie)
-                sess.add(genre)
-            else:
-                genre = sess.query(Genre).filter(Genre.genre_id == record['id']).first()
-                genre.movies.append(movie)
     sess.commit()
     return True
 
 
-def create_random_id_tmdb_list():
-    return random.sample(range(2, 500000), k=10000)
-
-
-def create_movie_json(id_tmdb, proxy_list):
+def fetch_movie_json(id_tmdb, proxy_list) -> dict:
     movie_json = make_tmdb_api_request(
         method='/movie/{}'.format(id_tmdb),
         api_key=API_KEY_V3,
         proxy_list=proxy_list
     )
     keywords = make_tmdb_api_request(
-        method='/movies/{}/keywords'.format(id_tmdb),
+        method='/movie/{}/keywords'.format(id_tmdb),
         api_key=API_KEY_V3,
         proxy_list=proxy_list
     )
     movie_json.update(keywords)
     lists = make_tmdb_api_request(
-        method='/movies/{}/lists'.format(id_tmdb),
+        method='/movie/{}/lists'.format(id_tmdb),
         api_key=API_KEY_V3,
         proxy_list=proxy_list
     )
     movie_json.update(lists)
     alternative_titles = make_tmdb_api_request(
-        method='/movies/{}/alternative_titles'.format(id_tmdb),
+        method='/movie/{}/alternative_titles'.format(id_tmdb),
         api_key=API_KEY_V3, proxy_list=proxy_list
     )
     movie_json.update(alternative_titles)
     if 'id' in movie_json.keys():
         return movie_json
-    return None
+    return {}
 
 
 def fetch_db(sess):
     how_many_movies_in_db = sess.query(Movie).count()
-    ids_tmdb = create_random_id_tmdb_list()
-    index = 0
+    index = 1
     proxy_list = fetch_proxy_list()
     for _ in tqdm(range(AMOUNT_OF_MOVIES - how_many_movies_in_db), total=AMOUNT_OF_MOVIES - how_many_movies_in_db,
                   unit='movie'):
         while True:
-            movie_json = create_movie_json(ids_tmdb[index], proxy_list)
+            movie_json = fetch_movie_json(index, proxy_list)
             index += 1
             if movie_json:
-                if persist_data_to_db(movie_json, sess):
+                has_persisted = persist_data_to_db(movie_json, sess)
+                if has_persisted:
                     break
 
 
-def get_similar_titles_movies_list(movie_title, sess) -> list:
-    similar_titles = sess.query(Title).filter(Title.title.like('%{}%'.format(movie_title))).all()
-    movies = set(title.movie for title in similar_titles)
-    return list(movies)
+def locate_similar_genre_movies(movie) -> set:
+    result = set()
+    for genre in movie.genres:
+        for other_genre in movie.genres:
+            result += set(genre.movies).intersection(set(other_genre.movies)) if genre is not other_genre else result
+    return result
+
+
+def locate_similar_lists_movies(movie) -> set:
+    result = set()
+    for list in movie.lists:
+        for other_list in movie.lists:
+            result += set(list.movies).intersection(set(other_list.movies)) if list is not other_list else result
+    return result
+
+
+def locate_similar_keyword_movies(movie) -> set:
+    result = set()
+    for keyword in movie.keywords:
+        for other_keyword in movie.keywords:
+            result += set(keyword.movies).intersection(set(other_keyword.movies)) if keyword is not other_keyword else result
+    return result
+
+
+def get_similar_movies_list_sorted_by_vote(movie) -> list:
+    similar_genre_movies = locate_similar_genre_movies(movie)
+    similar_keywords_movies = locate_similar_keyword_movies()
+    similar_lists_movies = locate_similar_lists_movies()
+    similar_keywords_and_genres = similar_genre_movies.intersection(similar_keywords_movies)
+    if not similar_keywords_and_genres:
+        return []
+    similar_keywords_lists_genres = similar_keywords_and_genres.intersection(similar_lists_movies)
+    if not similar_keywords_lists_genres:
+        return sorted(similar_keywords_and_genres, key=lambda movie: -movie.vote_average)
+    if len(similar_keywords_lists_genres) < RECOMMENDATIONS_LIST_SIZE:
+        similar_keywords_and_genres = sorted(similar_keywords_and_genres, key=lambda movie: -movie.vote_average)\
+                                      + sorted(similar_keywords_and_genres, key=lambda movie: -movie.vote_average)[:RECOMMENDATIONS_LIST_SIZE - len(similar_keywords_lists_genres)]
+    return sorted(similar_keywords_and_genres, key=lambda movie: -movie.vote_average)
 
 
 def get_rank(movie, the_movie, phrase) -> float:
-    title_factor = (1 - len(movie.title.replace(phrase, '')))/(1 - len(the_movie.title.replace(phrase, '')))
     genre_factor = 1 if len(set(movie.genres).intersection(set(the_movie.genres))) > 0 else 0
     keywords_factor = 1 if len(set(movie.keywords).intersection(set(the_movie.keywords))) > 0 else 0
     lists_factor = 1 if len(set(movie.lists).intersection(the_movie.lists)) > 0 else 0
-    return title_factor + genre_factor + keywords_factor + lists_factor + movie.vote_average
+    return genre_factor + keywords_factor + lists_factor + movie.vote_average
 
 
-def range_the_similar_ones(the_movie, similar_movies, phrase) -> list:
-    movies_rank_list = [get_rank(movie, the_movie, phrase) for movie in similar_movies]
-    if movies_rank_list:
-        return [movie for movie, rank in sorted(zip(similar_movies, movies_rank_list), key=lambda x: x[1])][
-               :RECOMMENDATIONS_LIST_SIZE]
-    return []
+def range_similar_titiles(similar_movies, phrase) -> list:
+    i, j = 0, 0
+    for movie in similar_movies:
+        i += 1
+        for title in movie.titles:
+            if phrase in title:
+                swap = similar_movies[j]
+                similar_movies[j] = similar_movies[i]
+                similar_movies[i] = swap
+    return similar_movies[:RECOMMENDATIONS_LIST_SIZE]
 
 
-def get_the_most_similar(movie_title, sess) -> Movie:
-    results = sess.query(Movie).filter(Movie.title.like('%{}%'.format(movie_title))).all()
-    the_most_similar = results[0] if len(results) > 0 else None
-    for result in results:
-        if len(result.title.replace(movie_title, '')) < len(the_most_similar.title.replace(movie_title, '')):
-            the_most_similar = result
+def get_the_most_similar_title(movie_title, sess) -> Title:
+    similar_titles = sess.query(Title).filter(Title.title.like('%{}%'.format(movie_title))).all()
+    if not similar_titles:
+        return None
+    similar_titles = sorted(similar_titles, key=lambda x: -x.movie.vote_average)
+    the_most_similar = similar_titles[0]
+    for title in similar_titles:
+        if len(title.title.replace(movie_title, '')) < len(the_most_similar.title.replace(movie_title, '')):
+            the_most_similar = title
     return the_most_similar
 
 
@@ -180,21 +239,19 @@ if __name__ == '__main__':
         print('Fetching the database...')
         fetch_db(session)
     phrase = input('Please, enter the part of the movie title that should be a pivot: ')
-    movie = get_the_most_similar(phrase, session)
-    while not movie:
+    desired_title = get_the_most_similar_title(phrase, session)
+    while not desired_title:
         phrase = input('Failed to find a movie with such title >_<. Lets try another! ^_^')
-        movie = get_the_most_similar(phrase, session)
-    print('\nFound a movie named "{}"'.format(movie.title))
+        desired_title = get_the_most_similar_title(phrase, session)
+    print('\nFound a movie named "{}"'.format(desired_title.title))
     print('Searching for similar films...')
-    similar_movies = set(get_similar_titles_movies_list(phrase, session))
-    similar_movies.discard(None)
-    similar_movies.discard(movie)
-    similar_movies = list(similar_movies) if similar_movies else []
-    if len(similar_movies) == 0:
+    similar_movies = get_similar_movies_list_sorted_by_vote(desired_title.movie)
+    similar_movies.remove(desired_title.movie)
+    if not similar_movies:
         print('Unfortunately, nothing is found!')
     else:
         print('Building a recommendations list...')
-        recommendations_list = range_the_similar_ones(movie, similar_movies, phrase)
+        recommendations_list = range_similar_titiles(similar_movies, phrase)
         print('\nThe recommended films:')
         for num, movie in enumerate(recommendations_list, start=1):
             print('{}. {}'.format(num, movie.title))
