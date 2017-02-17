@@ -22,10 +22,9 @@ class Movie (Base):
 
     movie_id = Column(Integer, primary_key=True)
     title = Column(String)
+    original_title = Column(String)
     vote_average = Column(REAL)
     is_adult = Column(Boolean)
-
-    titles = relationship('Title', back_populates='movie')
 
     genres = relationship('Genre',
                           secondary=movie_genres,
@@ -37,33 +36,16 @@ class Movie (Base):
                          secondary=movie_lists,
                          back_populates='movies')
 
-    def __init__(self, movie_id, movie_title, vote_average, is_adult):
+    def __init__(self, movie_id, movie_title, original_title, vote_average, is_adult):
         self.movie_id = movie_id
         self.title = movie_title
+        self.original_title = original_title
         self.vote_average = vote_average
         self.is_adult = is_adult
 
     def __repr__(self):
-        return "<Movie(movie_id={}, title='{}', vote_average={}, is_adult='{}', titles='{}', genres='{}', keywords='{}', lists='{}')>".format(
-            self.movie_id, self.title, self.vote_average, self.is_adult, self.titles, self.genres, self.keywords, self.lists
-        )
-
-
-class Title (Base):
-    __tablename__ = 'titles'
-
-    title_id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String)
-    movie_id = Column(Integer, ForeignKey('movies.movie_id'))
-
-    movie = relationship('Movie', back_populates='titles')
-
-    def __init__(self, title):
-        self.title = title
-
-    def __repr__(self):
-        return "<Title(title_id={}, title='{}', movie_id={})>".format(
-            self.title_id, self.title, self.movie_id
+        return "<Movie(movie_id={}, title='{}', original_title='{}', vote_average={}, is_adult='{}', genres='{}', keywords='{}', lists='{}')>".format(
+            self.movie_id, self.title, self.original_title, self.vote_average, self.is_adult, self.genres, self.keywords, self.lists
         )
 
 
